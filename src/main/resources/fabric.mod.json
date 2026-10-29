@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "hideoffhand",
+  "version": "${version}",
+  "name": "Hide Offhand Icon",
+  "description": "Menyembunyikan ikon item offhand beserta teks jumlahnya di samping hotbar.",
+  "authors": ["You"],
+  "license": "MIT",
+  "environment": "client",
+  "mixins": ["hideoffhand.mixins.json"],
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "minecraft": "~1.21.11",
+    "java": ">=21"
+  }
+}
