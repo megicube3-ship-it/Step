@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "armorpunchjump",
+  "version": "${version}",
+  "name": "Armor Punch Jump",
+  "description": "Satu keybind: pakai chestplate, spear punch, pakai elytra, jump.",
+  "authors": ["me"],
+  "environment": "client",
+  "entrypoints": {
+    "client": ["id.armorpunchjump.ArmorPunchJumpClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.18.0",
+    "minecraft": "~1.21.11",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
