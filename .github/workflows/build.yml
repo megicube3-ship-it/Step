@@ -9,10 +9,12 @@ jobs:
 
       - name: Susun folder otomatis
         run: |
-          mkdir -p src/main/java/id/armorpunchjump
+          mkdir -p src/main/java/id/armorpunchjump/mixin
           mkdir -p src/main/resources/assets/armorpunchjump/lang
           mv ArmorPunchJumpClient.java src/main/java/id/armorpunchjump/
+          mv MinecraftClientInvoker.java src/main/java/id/armorpunchjump/mixin/
           mv fabric.mod.json src/main/resources/
+          mv armorpunchjump.mixins.json src/main/resources/
           mv en_us.json src/main/resources/assets/armorpunchjump/lang/
 
       - uses: actions/setup-java@v4
