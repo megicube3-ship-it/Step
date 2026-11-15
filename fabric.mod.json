@@ -6,6 +6,7 @@
   "description": "Satu keybind: pakai chestplate, spear punch, pakai elytra, jump.",
   "authors": ["me"],
   "environment": "client",
+  "mixins": ["armorpunchjump.mixins.json"],
   "entrypoints": {
     "client": ["id.armorpunchjump.ArmorPunchJumpClient"]
   },

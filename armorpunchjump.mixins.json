@@ -1,0 +1,9 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "id.armorpunchjump.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "MinecraftClientInvoker"
+  ]
+}
