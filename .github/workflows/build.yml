@@ -1,19 +1,33 @@
 name: build
 on: [push, workflow_dispatch]
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Susun folder otomatis
+        run: |
+          mkdir -p src/main/java/id/armorpunchjump
+          mkdir -p src/main/resources/assets/armorpunchjump/lang
+          mv ArmorPunchJumpClient.java src/main/java/id/armorpunchjump/
+          mv fabric.mod.json src/main/resources/
+          mv en_us.json src/main/resources/assets/armorpunchjump/lang/
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
+
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: 9.2.0
-      - run: gradle build
+
+      - name: Build
+        run: gradle build --no-daemon
+
       - uses: actions/upload-artifact@v4
         with:
-          name: hide-offhand-jar
+          name: armorpunchjump
           path: build/libs/*.jar
