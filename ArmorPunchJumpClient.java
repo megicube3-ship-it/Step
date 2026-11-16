@@ -22,6 +22,7 @@ import net.minecraft.util.Hand;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.hit.HitResult;
+import net.minecraft.util.math.Vec3d;
 import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,6 +34,41 @@ public class ArmorPunchJumpClient implements ClientModInitializer {
     private static KeyBinding comboKey;
     private static KeyBinding visualKey;
     private static boolean releaseJumpNextTick = false;
+
+    /** DEBUG sementara: tulis info ke log (level ERROR supaya muncul di latestlog Amethyst). Tidak ada teks di layar. */
+    private static final boolean DEBUG = true;
+
+    private static void dbg(String msg) {
+        if (DEBUG) LOG.error("[APJ-DEBUG] " + msg);
+    }
+
+    private static void dumpHotbar(ClientPlayerEntity p) {
+        StringBuilder sb = new StringBuilder("hotbar:");
+        for (int i = 0; i < 9; i++) {
+            sb.append(" [").append(i).append("]=").append(path(p.getInventory().getStack(i)));
+        }
+        sb.append(" selected=").append(p.getInventory().getSelectedSlot());
+        dbg(sb.toString());
+    }
+
+    /** Panggil klik kiri bawaan lewat mixin dan catat hasilnya. */
+    private static void debugAttack(MinecraftClient c, String tag) {
+        ClientPlayerEntity p = c.player;
+        ItemStack held = p.getMainHandStack();
+        Vec3d v0 = p.getVelocity();
+        String state = "item=" + path(held) + " onGround=" + p.isOnGround() + " gliding=" + p.isGliding()
+                + " usingItem=" + p.isUsingItem() + " food=" + p.getHungerManager().getFoodLevel()
+                + " cooldownProgress=" + p.getAttackCooldownProgress(0f);
+        if ((Object) c instanceof MinecraftClientInvoker invoker) {
+            boolean r = invoker.armorpunchjump$doAttack();
+            Vec3d v1 = p.getVelocity();
+            dbg(tag + " doAttack result=" + r + " " + state + " velBefore=" + v0 + " velAfter=" + v1
+                    + " crosshair=" + (c.crosshairTarget == null ? "null" : c.crosshairTarget.getType()));
+        } else {
+            dbg(tag + " MIXIN TIDAK TERPASANG (invoker null) " + state);
+        }
+        dbg(tag + " held components: " + held.getComponents());
+    }
 
     /** Mode visual: jeda antar langkah dalam tick (20 tick = 1 detik). Naikkan kalau mau lebih lambat. */
     private static final int STEP_DELAY_TICKS = 2;
@@ -54,7 +90,7 @@ public class ArmorPunchJumpClient implements ClientModInitializer {
                 GLFW.GLFW_KEY_H,
                 category
         ));
-        LOG.info("[ArmorPunchJump] v1.4.1 loaded, keys: G = instan, H = visual step by step");
+        LOG.info("[ArmorPunchJump] v1.5.0-debug loaded, keys: G = instan, H = visual step by step");
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (releaseJumpNextTick) {
@@ -148,17 +184,9 @@ public class ArmorPunchJumpClient implements ClientModInitializer {
         slot = findHotbar(player, ArmorPunchJumpClient::isSpear);
         if (slot != -1) {
             selectSlot(player, nh, slot);
-            if ((Object) client instanceof MinecraftClientInvoker invoker) {
-                invoker.armorpunchjump$doAttack();
-                atk = "vanilla";
-            } else {
-                HitResult hit = client.crosshairTarget;
-                if (hit instanceof EntityHitResult entityHit) {
-                    im.attackEntity(player, entityHit.getEntity());
-                }
-                player.swingHand(Hand.MAIN_HAND);
-                atk = "fallback";
-            }
+            dumpHotbar(player);
+            debugAttack(client, "G");
+            atk = "vanilla";
             okSpear = true;
         }
 
@@ -198,7 +226,8 @@ public class ArmorPunchJumpClient implements ClientModInitializer {
         if (client.player == null || client.interactionManager == null || client.currentScreen != null) return;
         if (!steps.isEmpty()) return; // makro visual masih berjalan
         steps.add(() -> visualArmor(client));
-        steps.add(() -> visualSpear(client));
+        steps.add(() -> visualSpearSelect(client));
+        steps.add(() -> visualSpearAttack(client));
         steps.add(() -> visualElytra(client));
         steps.add(() -> visualJump(client));
         stepCountdown = 0;
@@ -221,16 +250,22 @@ public class ArmorPunchJumpClient implements ClientModInitializer {
         c.interactionManager.interactItem(p, Hand.MAIN_HAND);
     }
 
-    private static void visualSpear(MinecraftClient c) {
+    private static void visualSpearSelect(MinecraftClient c) {
         if (!visualReady(c)) return;
         ClientPlayerEntity p = c.player;
+        dumpHotbar(p);
         int slot = findHotbar(p, ArmorPunchJumpClient::isSpear);
-        if (slot == -1) return;
+        dbg("H spear slot=" + slot);
+        if (slot == -1) {
+            steps.clear();
+            return;
+        }
         selectSlot(p, c.getNetworkHandler(), slot);
-        // Tap tombol attack seperti jari asli: game memprosesnya di awal tick berikutnya lewat
-        // jalur normal (klik kiri bawaan, termasuk animasi dan mod lain). Spear masih dipegang saat itu
-        // karena langkah elytra baru jalan beberapa tick kemudian.
-        KeyBinding.onKeyPressed(KeyBindingHelper.getBoundKeyOf(c.options.attackKey));
+    }
+
+    private static void visualSpearAttack(MinecraftClient c) {
+        if (!visualReady(c)) return;
+        debugAttack(c, "H");
     }
 
     private static void visualElytra(MinecraftClient c) {
