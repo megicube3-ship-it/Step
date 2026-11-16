@@ -18,7 +18,6 @@ import net.minecraft.item.Items;
 import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
 import net.minecraft.network.packet.c2s.play.UpdateSelectedSlotC2SPacket;
 import net.minecraft.registry.Registries;
-import net.minecraft.text.Text;
 import net.minecraft.util.Hand;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.hit.EntityHitResult;
@@ -27,10 +26,18 @@ import org.lwjgl.glfw.GLFW;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayDeque;
+
 public class ArmorPunchJumpClient implements ClientModInitializer {
     private static final Logger LOG = LoggerFactory.getLogger("ArmorPunchJump");
     private static KeyBinding comboKey;
+    private static KeyBinding visualKey;
     private static boolean releaseJumpNextTick = false;
+
+    /** Mode visual: jeda antar langkah dalam tick (20 tick = 1 detik). Naikkan kalau mau lebih lambat. */
+    private static final int STEP_DELAY_TICKS = 2;
+    private static final ArrayDeque<Runnable> steps = new ArrayDeque<>();
+    private static int stepCountdown = 0;
 
     @Override
     public void onInitializeClient() {
@@ -41,16 +48,35 @@ public class ArmorPunchJumpClient implements ClientModInitializer {
                 GLFW.GLFW_KEY_G,
                 category
         ));
-        LOG.info("[ArmorPunchJump] v1.3.0 loaded, default key = G");
+        visualKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+                "key.armorpunchjump.visual",
+                InputUtil.Type.KEYSYM,
+                GLFW.GLFW_KEY_H,
+                category
+        ));
+        LOG.info("[ArmorPunchJump] v1.4.0 loaded, keys: G = instan, H = visual step by step");
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (releaseJumpNextTick) {
                 client.options.jumpKey.setPressed(false);
                 releaseJumpNextTick = false;
             }
+            if (!steps.isEmpty()) {
+                if (stepCountdown > 0) {
+                    stepCountdown--;
+                } else {
+                    Runnable next = steps.poll();
+                    stepCountdown = STEP_DELAY_TICKS;
+                    next.run();
+                }
+            }
             while (comboKey.wasPressed()) {
                 LOG.info("[ArmorPunchJump] key pressed");
                 runCombo(client);
+            }
+            while (visualKey.wasPressed()) {
+                LOG.info("[ArmorPunchJump] visual key pressed");
+                startVisual(client);
             }
         });
     }
@@ -164,7 +190,73 @@ public class ArmorPunchJumpClient implements ClientModInitializer {
                 + " atk=" + atk + " elytra=" + yn(okElytra)
                 + " fly=" + yn(wasGliding) + " end=" + jump;
         LOG.info("[ArmorPunchJump] " + msg);
-        player.sendMessage(Text.literal(msg), true);
+    }
+
+    // ---------- Mode visual: tiap langkah jalan di tick berbeda supaya hotbar & tangan kelihatan ----------
+
+    private static void startVisual(MinecraftClient client) {
+        if (client.player == null || client.interactionManager == null || client.currentScreen != null) return;
+        if (!steps.isEmpty()) return; // makro visual masih berjalan
+        steps.add(() -> visualArmor(client));
+        steps.add(() -> visualSpear(client));
+        steps.add(() -> visualElytra(client));
+        steps.add(() -> visualJump(client));
+        stepCountdown = 0;
+    }
+
+    private static boolean visualReady(MinecraftClient c) {
+        if (c.player == null || c.interactionManager == null || c.currentScreen != null) {
+            steps.clear();
+            return false;
+        }
+        return true;
+    }
+
+    private static void visualArmor(MinecraftClient c) {
+        if (!visualReady(c)) return;
+        ClientPlayerEntity p = c.player;
+        int slot = findHotbar(p, ArmorPunchJumpClient::isChestArmor);
+        if (slot == -1) return;
+        selectSlot(p, c.getNetworkHandler(), slot);
+        c.interactionManager.interactItem(p, Hand.MAIN_HAND);
+    }
+
+    private static void visualSpear(MinecraftClient c) {
+        if (!visualReady(c)) return;
+        ClientPlayerEntity p = c.player;
+        int slot = findHotbar(p, ArmorPunchJumpClient::isSpear);
+        if (slot == -1) return;
+        selectSlot(p, c.getNetworkHandler(), slot);
+        if ((Object) c instanceof MinecraftClientInvoker invoker) {
+            invoker.armorpunchjump$doAttack();
+        } else {
+            HitResult hit = c.crosshairTarget;
+            if (hit instanceof EntityHitResult entityHit) {
+                c.interactionManager.attackEntity(p, entityHit.getEntity());
+            }
+            p.swingHand(Hand.MAIN_HAND);
+        }
+    }
+
+    private static void visualElytra(MinecraftClient c) {
+        if (!visualReady(c)) return;
+        ClientPlayerEntity p = c.player;
+        int slot = findHotbar(p, ArmorPunchJumpClient::isElytra);
+        if (slot == -1) return;
+        selectSlot(p, c.getNetworkHandler(), slot);
+        c.interactionManager.interactItem(p, Hand.MAIN_HAND);
+    }
+
+    private static void visualJump(MinecraftClient c) {
+        if (!visualReady(c)) return;
+        ClientPlayerEntity p = c.player;
+        if (p.isOnGround()) {
+            p.jump();
+        } else {
+            // di udara: tekan jump 1 tick supaya elytra mulai glide lewat jalur bawaan game
+            c.options.jumpKey.setPressed(true);
+            releaseJumpNextTick = true;
+        }
     }
 
     private static String yn(boolean b) {
