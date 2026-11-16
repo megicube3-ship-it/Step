@@ -54,7 +54,7 @@ public class ArmorPunchJumpClient implements ClientModInitializer {
                 GLFW.GLFW_KEY_H,
                 category
         ));
-        LOG.info("[ArmorPunchJump] v1.4.0 loaded, keys: G = instan, H = visual step by step");
+        LOG.info("[ArmorPunchJump] v1.4.1 loaded, keys: G = instan, H = visual step by step");
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (releaseJumpNextTick) {
@@ -227,15 +227,10 @@ public class ArmorPunchJumpClient implements ClientModInitializer {
         int slot = findHotbar(p, ArmorPunchJumpClient::isSpear);
         if (slot == -1) return;
         selectSlot(p, c.getNetworkHandler(), slot);
-        if ((Object) c instanceof MinecraftClientInvoker invoker) {
-            invoker.armorpunchjump$doAttack();
-        } else {
-            HitResult hit = c.crosshairTarget;
-            if (hit instanceof EntityHitResult entityHit) {
-                c.interactionManager.attackEntity(p, entityHit.getEntity());
-            }
-            p.swingHand(Hand.MAIN_HAND);
-        }
+        // Tap tombol attack seperti jari asli: game memprosesnya di awal tick berikutnya lewat
+        // jalur normal (klik kiri bawaan, termasuk animasi dan mod lain). Spear masih dipegang saat itu
+        // karena langkah elytra baru jalan beberapa tick kemudian.
+        KeyBinding.onKeyPressed(KeyBindingHelper.getBoundKeyOf(c.options.attackKey));
     }
 
     private static void visualElytra(MinecraftClient c) {
