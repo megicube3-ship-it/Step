@@ -72,6 +72,13 @@ public class ArmorPunchJumpClient implements ClientModInitializer {
 
     /** Mode visual: jeda antar langkah dalam tick (20 tick = 1 detik). Naikkan kalau mau lebih lambat. */
     private static final int STEP_DELAY_TICKS = 2;
+
+    /**
+     * false (default): armor dan spear dijalankan di tick yang sama seperti mode G, jadi spear langsung jab tanpa menunggu.
+     * true: hotbar berhenti dulu di slot armor, tapi spear baru bisa jab ~1 detik kemudian
+     * (game me-reset cooldown spear setiap ganti slot antar tick).
+     */
+    private static final boolean H_SHOW_ARMOR_STEP = false;
     private static final ArrayDeque<Runnable> steps = new ArrayDeque<>();
     private static int stepCountdown = 0;
 
@@ -90,7 +97,7 @@ public class ArmorPunchJumpClient implements ClientModInitializer {
                 GLFW.GLFW_KEY_H,
                 category
         ));
-        LOG.info("[ArmorPunchJump] v1.5.1 loaded, keys: G = instan, H = visual step by step");
+        LOG.info("[ArmorPunchJump] v1.5.2 loaded, keys: G = instan, H = visual step by step");
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (releaseJumpNextTick) {
@@ -225,8 +232,12 @@ public class ArmorPunchJumpClient implements ClientModInitializer {
     private static void startVisual(MinecraftClient client) {
         if (client.player == null || client.interactionManager == null || client.currentScreen != null) return;
         if (!steps.isEmpty()) return; // makro visual masih berjalan
-        steps.add(() -> visualArmor(client));
-        steps.add(() -> visualSpear(client));
+        if (H_SHOW_ARMOR_STEP) {
+            steps.add(() -> visualArmor(client));
+            steps.add(() -> visualSpear(client));
+        } else {
+            steps.add(() -> visualArmorThenSpear(client));
+        }
         steps.add(() -> visualElytra(client));
         steps.add(() -> visualJump(client));
         stepCountdown = 0;
@@ -238,6 +249,21 @@ public class ArmorPunchJumpClient implements ClientModInitializer {
             return false;
         }
         return true;
+    }
+
+    /** Armor lalu spear dalam satu tick (sama seperti mode G) supaya cooldown spear belum ter-reset. */
+    private static void visualArmorThenSpear(MinecraftClient c) {
+        if (!visualReady(c)) return;
+        ClientPlayerEntity p = c.player;
+        boolean wasGliding = p.isGliding();
+        int slot = findHotbar(p, ArmorPunchJumpClient::isChestArmor);
+        if (slot != -1) {
+            selectSlot(p, c.getNetworkHandler(), slot);
+            c.interactionManager.interactItem(p, Hand.MAIN_HAND);
+            // sedang terbang: matikan gliding di server sekarang juga (sama seperti mode G)
+            if (wasGliding) sendStartGliding(p, c.getNetworkHandler());
+        }
+        visualSpear(c);
     }
 
     private static void visualArmor(MinecraftClient c) {
