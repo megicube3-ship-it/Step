@@ -36,7 +36,7 @@ public class ArmorPunchJumpClient implements ClientModInitializer {
     private static boolean releaseJumpNextTick = false;
 
     /** DEBUG sementara: tulis info ke log (level ERROR supaya muncul di latestlog Amethyst). Tidak ada teks di layar. */
-    private static final boolean DEBUG = true;
+    private static final boolean DEBUG = false;
 
     private static void dbg(String msg) {
         if (DEBUG) LOG.error("[APJ-DEBUG] " + msg);
@@ -67,7 +67,7 @@ public class ArmorPunchJumpClient implements ClientModInitializer {
         } else {
             dbg(tag + " MIXIN TIDAK TERPASANG (invoker null) " + state);
         }
-        dbg(tag + " held components: " + held.getComponents());
+        if (DEBUG) dbg(tag + " held components: " + held.getComponents());
     }
 
     /** Mode visual: jeda antar langkah dalam tick (20 tick = 1 detik). Naikkan kalau mau lebih lambat. */
@@ -90,7 +90,7 @@ public class ArmorPunchJumpClient implements ClientModInitializer {
                 GLFW.GLFW_KEY_H,
                 category
         ));
-        LOG.info("[ArmorPunchJump] v1.5.0-debug loaded, keys: G = instan, H = visual step by step");
+        LOG.info("[ArmorPunchJump] v1.5.1 loaded, keys: G = instan, H = visual step by step");
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (releaseJumpNextTick) {
@@ -226,8 +226,7 @@ public class ArmorPunchJumpClient implements ClientModInitializer {
         if (client.player == null || client.interactionManager == null || client.currentScreen != null) return;
         if (!steps.isEmpty()) return; // makro visual masih berjalan
         steps.add(() -> visualArmor(client));
-        steps.add(() -> visualSpearSelect(client));
-        steps.add(() -> visualSpearAttack(client));
+        steps.add(() -> visualSpear(client));
         steps.add(() -> visualElytra(client));
         steps.add(() -> visualJump(client));
         stepCountdown = 0;
@@ -250,22 +249,40 @@ public class ArmorPunchJumpClient implements ClientModInitializer {
         c.interactionManager.interactItem(p, Hand.MAIN_HAND);
     }
 
-    private static void visualSpearSelect(MinecraftClient c) {
+    /** Batas tunggu cooldown spear di mode visual (tick). Cooldown spear sekitar 23 tick. */
+    private static final int SPEAR_WAIT_MAX_TICKS = 60;
+    private static int spearWaitTicks = 0;
+
+    /**
+     * Spear baru boleh jab kalau cooldown serangannya penuh, dan cooldown itu di-reset setiap ganti slot hotbar.
+     * Makro instan (G) lolos karena semua terjadi sebelum game sempat me-reset cooldown.
+     * Di mode visual kita pilih spear, lalu jab begitu cooldown penuh (langsung kalau sudah penuh).
+     */
+    private static void visualSpear(MinecraftClient c) {
         if (!visualReady(c)) return;
         ClientPlayerEntity p = c.player;
-        dumpHotbar(p);
         int slot = findHotbar(p, ArmorPunchJumpClient::isSpear);
-        dbg("H spear slot=" + slot);
-        if (slot == -1) {
-            steps.clear();
-            return;
-        }
+        if (slot == -1) return;
         selectSlot(p, c.getNetworkHandler(), slot);
+        if (p.getAttackCooldownProgress(0f) >= 1.0f) {
+            debugAttack(c, "H");
+        } else {
+            spearWaitTicks = 0;
+            steps.addFirst(() -> visualSpearWait(c));
+            stepCountdown = 0;
+        }
     }
 
-    private static void visualSpearAttack(MinecraftClient c) {
+    private static void visualSpearWait(MinecraftClient c) {
         if (!visualReady(c)) return;
-        debugAttack(c, "H");
+        ClientPlayerEntity p = c.player;
+        if (p.getAttackCooldownProgress(0f) >= 1.0f || spearWaitTicks >= SPEAR_WAIT_MAX_TICKS) {
+            debugAttack(c, "H");
+        } else {
+            spearWaitTicks++;
+            steps.addFirst(() -> visualSpearWait(c));
+            stepCountdown = 0;
+        }
     }
 
     private static void visualElytra(MinecraftClient c) {
