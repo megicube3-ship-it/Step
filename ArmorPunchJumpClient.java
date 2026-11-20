@@ -12,7 +12,10 @@ import net.minecraft.client.option.KeyBinding;
 import net.minecraft.client.util.InputUtil;
 import net.minecraft.component.DataComponentTypes;
 import net.minecraft.component.type.EquippableComponent;
+import net.minecraft.entity.Entity;
 import net.minecraft.entity.EquipmentSlot;
+import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.decoration.ArmorStandEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.network.packet.c2s.play.ClientCommandC2SPacket;
@@ -33,6 +36,13 @@ public class ArmorPunchJumpClient implements ClientModInitializer {
     private static final Logger LOG = LoggerFactory.getLogger("ArmorPunchJump");
     private static KeyBinding comboKey;
     private static KeyBinding visualKey;
+    private static KeyBinding maceKey;
+
+    /** Mode mace: berapa lama (tick) auto-hit aktif setelah mace dipegang. 20 tick = 1 detik. */
+    private static final int AUTO_MAX_TICKS = 200;
+    /** true = auto-hit berhenti setelah 1x serangan berhasil. false = terus menyerang sampai waktu habis / ditekan lagi. */
+    private static final boolean AUTO_STOP_AFTER_HIT = false;
+    private static int autoTicksLeft = 0;
     private static boolean releaseJumpNextTick = false;
 
     /** DEBUG sementara: tulis info ke log (level ERROR supaya muncul di latestlog Amethyst). Tidak ada teks di layar. */
@@ -97,7 +107,13 @@ public class ArmorPunchJumpClient implements ClientModInitializer {
                 GLFW.GLFW_KEY_H,
                 category
         ));
-        LOG.info("[ArmorPunchJump] v1.5.2 loaded, keys: G = instan, H = visual step by step");
+        maceKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+                "key.armorpunchjump.mace",
+                InputUtil.Type.KEYSYM,
+                GLFW.GLFW_KEY_J,
+                category
+        ));
+        LOG.info("[ArmorPunchJump] v1.6.0 loaded, keys: G = instan, H = visual, J = armor-spear-mace auto hit");
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             if (releaseJumpNextTick) {
@@ -111,6 +127,14 @@ public class ArmorPunchJumpClient implements ClientModInitializer {
                     Runnable next = steps.poll();
                     stepCountdown = STEP_DELAY_TICKS;
                     next.run();
+                }
+            }
+            autoAttackTick(client);
+            while (maceKey.wasPressed()) {
+                if (autoTicksLeft > 0) {
+                    autoTicksLeft = 0; // ditekan lagi = batalkan auto-hit
+                } else {
+                    runMaceCombo(client);
                 }
             }
             while (comboKey.wasPressed()) {
@@ -330,6 +354,80 @@ public class ArmorPunchJumpClient implements ClientModInitializer {
             c.options.jumpKey.setPressed(true);
             releaseJumpNextTick = true;
         }
+    }
+
+    // ---------- Mode mace: armor -> spear punch -> mace -> auto-hit kalau ada target ----------
+
+    /** Target yang bisa dipukul: makhluk hidup tepat di crosshair (jarak dan hitbox sudah dihitung game). */
+    private static Entity validTarget(MinecraftClient c) {
+        HitResult hit = c.crosshairTarget;
+        if (!(hit instanceof EntityHitResult entityHit)) return null;
+        Entity e = entityHit.getEntity();
+        if (!(e instanceof LivingEntity living)) return null;
+        if (e instanceof ArmorStandEntity) return null;
+        if (!living.isAlive() || !living.isAttackable() || living.isInvulnerable()) return null;
+        return e;
+    }
+
+    private static void runMaceCombo(MinecraftClient client) {
+        ClientPlayerEntity player = client.player;
+        ClientPlayerInteractionManager im = client.interactionManager;
+        ClientPlayNetworkHandler nh = client.getNetworkHandler();
+        if (player == null || im == null || client.currentScreen != null) return;
+
+        boolean wasGliding = player.isGliding();
+
+        // 1) Cari armor di hotbar lalu gunakan
+        int slot = findHotbar(player, ArmorPunchJumpClient::isChestArmor);
+        if (slot != -1) {
+            selectSlot(player, nh, slot);
+            im.interactItem(player, Hand.MAIN_HAND);
+            // sedang terbang: matikan gliding di server sekarang juga (sama seperti mode G)
+            if (wasGliding) sendStartGliding(player, nh);
+        }
+
+        // 2) Cari spear lalu punch (klik kiri bawaan, tanpa cek mob)
+        slot = findHotbar(player, ArmorPunchJumpClient::isSpear);
+        if (slot != -1) {
+            selectSlot(player, nh, slot);
+            debugAttack(client, "J");
+        }
+
+        // 3) Cari mace lalu pegang; auto-hit aktif selama ada target yang bisa dipukul
+        slot = findHotbar(player, s -> !s.isEmpty() && s.isOf(Items.MACE));
+        if (slot != -1) {
+            selectSlot(player, nh, slot);
+            autoTicksLeft = AUTO_MAX_TICKS;
+            autoAttackTick(client);
+        } else {
+            LOG.info("[ArmorPunchJump] mace tidak ada di hotbar");
+        }
+    }
+
+    /** Dipanggil tiap tick selama auto-hit aktif. */
+    private static void autoAttackTick(MinecraftClient c) {
+        if (autoTicksLeft <= 0) return;
+        ClientPlayerEntity p = c.player;
+        if (p == null || c.interactionManager == null || c.currentScreen != null
+                || !p.isAlive() || !p.getMainHandStack().isOf(Items.MACE)) {
+            autoTicksLeft = 0;
+            return;
+        }
+        autoTicksLeft--;
+
+        Entity target = validTarget(c);
+        if (target == null) return;
+        if (p.getAttackCooldownProgress(0f) < 1.0f) return; // tunggu cooldown mace penuh
+
+        boolean hit;
+        if ((Object) c instanceof MinecraftClientInvoker invoker) {
+            hit = invoker.armorpunchjump$doAttack();
+        } else {
+            c.interactionManager.attackEntity(p, target);
+            p.swingHand(Hand.MAIN_HAND);
+            hit = true;
+        }
+        if (hit && AUTO_STOP_AFTER_HIT) autoTicksLeft = 0;
     }
 
     private static String yn(boolean b) {
